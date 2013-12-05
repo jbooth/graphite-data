@@ -1,7 +1,5 @@
 import importlib
 from abc import ABCMeta,abstractmethod
-from carbon.conf import settings
-from carbon import log
 
 # class DB is a generic DB layer to support graphite.  Plugins can provide an implementation satisfying the following functions
 # by configuring DB_MODULE, DB_INIT_FUNC and DB_INIT_ARG
@@ -73,16 +71,3 @@ class TSDB:
     @abstractmethod
     def get_intervals(self,metric):
         pass
-
-
-
-
-# application database
-APP_DB = WhisperDB() # default implementation
-
-# if we've configured a module to override, put that one in place instead of the default whisper db
-if (settings.DB_MODULE != "whisper" and settings.DB_INIT_FUNC != ""):
-    m = importlib.import_module(settings.DB_MODULE)
-    dbInitFunc = getattr(m,settings.DB_INIT_FUNC)
-    APP_DB = dbInitFunc(settings.DB_INIT_ARG)
-    assert isinstance(APP_DB,TSDB)
