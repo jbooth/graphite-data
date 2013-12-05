@@ -1,9 +1,11 @@
 import os
 from os.path import sep, join, dirname, basename, isdir, islink, realpath, isfile
-import whisper
 import time
-from node import BranchNode, LeafNode
 import fnmatch
+
+import whisper
+from graphitedata.node import BranchNode, LeafNode
+
 
 def is_escaped_pattern(s):
   for symbol in '*?[{':

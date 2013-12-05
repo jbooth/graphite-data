@@ -10,13 +10,11 @@
 import sys
 import pprint
 from urlparse import urlparse
-from thrift.transport import TTransport
 from thrift.transport import TSocket
 from thrift.transport import THttpClient
-from thrift.protocol import TBinaryProtocol
 
-from hbase import THBaseService
-from hbase.ttypes import *
+from graphitedata.hbase import THBaseService
+from graphitedata.hbase.ttypes import *
 
 if len(sys.argv) <= 1 or sys.argv[1] == '--help':
   print ''

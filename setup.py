@@ -16,7 +16,7 @@ else:
 # If we are building on RedHat, let's use the redhat init scripts.
 setup(
   name='graphitedata',
-  version='0.0.1',
+  version='0.1',
   url='https://github.com/jbooth/graphite-data',
   author='Jay Booth',
   author_email='jaybooth@gmail.com',

@@ -1,21 +1,27 @@
-import whisper
-import importlib
-import os
-import time
-from os.path import join, dirname, exists, sep
-from abc import ABCMeta,abstractmethod
-from carbon.conf import settings
-from carbon import log
+import json
 
-# class DB is a generic DB layer to support graphite.  Plugins can provide an implementation satisfying the following functions
-# by configuring DB_MODULE, DB_INIT_FUNC and DB_INIT_ARG
+from thrift.transport import TSocket
 
-# the global variable APP_DB will be initialized as the return value of DB_MODULE.DB_INIT_FUNC(DB_INIT_ARG)
-# we will throw an error if the provided value does not implement our abstract class DB below
+from graphitedata.hbase import THBaseService
+from graphitedata.hbase.ttypes import *
 
 
-class TSDB:
-    __metaclass__= ABCMeta
+# we store all TS data in a single CF on the graphite-data cluster
+# TS datapoints are stored with key METRIC#UNIXTIME
+# TS metadata is stored with META#METRIC
+
+
+class HbaseTSDB:
+    __slots__ = ('transport','client','table','cf')
+
+    def __init__(self, host,port,table,cf):
+        self.table = table
+        self.cf = cf
+        socket = TSocket.TSocket(host, port)
+        self.transport = TTransport.TBufferedTransport(socket)
+        protocol = TBinaryProtocol.TBinaryProtocol(self.transport)
+        self.client = client = THBaseService.Client(protocol)
+        self.transport.open()
 
     # returns info for the underlying db (including 'aggregationMethod')
 
@@ -35,30 +41,46 @@ class TSDB:
     #  'size' : points * pointSize,
     #}
     #
-    @abstractmethod
+
     def info(self, metric):
-        pass
+        # info is stored as serialized map under META#METRIC
+        key = "META#" + metric
+        get = TGet(row=key)
+        result = self.client.get(self.table,get)
+        return json.loads(result["META"])
 
     # aggregationMethod specifies the method to use when propogating data (see ``whisper.aggregationMethods``)
     # xFilesFactor specifies the fraction of data points in a propagation interval that must have known values for a propagation to occur.  If None, the existing xFilesFactor in path will not be changed
-    @abstractmethod
     def setAggregationMethod(self, metric, aggregationMethod, xFilesFactor=None):
+        currInfo = self.info(metric)
+        currInfo['aggregationMethod'] = aggregationMethod
+        currInfo['xFilesFactor'] = xFilesFactor
+        infoJson = json.dumps(currInfo)
+        put = TPut(row="META#"+metric, columnValues=[TColumnValue(family=self.cf,qualifier="META",value=infoJson)])
         pass
 
     # archiveList is a list of archives, each of which is of the form (secondsPerPoint,numberOfPoints)
     # xFilesFactor specifies the fraction of data points in a propagation interval that must have known values for a propagation to occur
     # aggregationMethod specifies the function to use when propogating data (see ``whisper.aggregationMethods``)
-    @abstractmethod
     def create(self, metric, archiveConfig, xFilesFactor, aggregationMethod, isSparse, doFallocate):
+        #create meta node
+        info = {
+            'aggregationMethod' : aggregationMethod,
+            'maxRetention' : 21,
+            'xFilesFactor' : xFilesFactor,
+            'archives' : archives,
+
+        }
+
+        # ensure links exist
+
         pass
 
 
     # datapoints is a list of (timestamp,value) points
-    @abstractmethod
     def update_many(self, metric, datapoints):
         pass
 
-    @abstractmethod
     def exists(self,metric):
         pass
 
@@ -69,24 +91,23 @@ class TSDB:
     # Returns a tuple of (timeInfo, valueList)
     # where timeInfo is itself a tuple of (fromTime, untilTime, step)
     # Returns None if no data can be returned
-    @abstractmethod
     def fetch(self,metric,startTime,endTime):
         pass
 
     # returns [ start, end ] where start,end are unixtime ints
-    @abstractmethod
     def get_intervals(self,metric):
         pass
 
+    # returns list of metrics as strings
+    def find_nodes(self,query):
+        # break query into parts
+        clean_pattern = query.pattern.replace('\\', '')
+        pattern_parts = clean_pattern.split('.')
 
+        # walk the nodes in hbase by part
 
+        pass
 
-# application database
-APP_DB = WhisperDB() # default implementation
-
-# if we've configured a module to override, put that one in place instead of the default whisper db
-if (settings.DB_MODULE != "whisper" and settings.DB_INIT_FUNC != ""):
-    m = importlib.import_module(settings.DB_MODULE)
-    dbInitFunc = getattr(m,settings.DB_INIT_FUNC)
-    APP_DB = dbInitFunc(settings.DB_INIT_ARG)
-    assert isinstance(APP_DB,TSDB)
+def NewHbaseTSDB(arg="localhost:9090:graphite:graphite"):
+    host,port,table,cf = arg.split(":")
+    return HbaseTSDB(host,port,table,cf)
