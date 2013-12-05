@@ -1,18 +1,41 @@
-import whisper
-import importlib
-import os
-import time
-from os.path import join, dirname, exists, sep
 from abc import ABCMeta,abstractmethod
-from carbon.conf import settings
-from carbon import log
 
 # class DB is a generic DB layer to support graphite.  Plugins can provide an implementation satisfying the following functions
 # by configuring DB_MODULE, DB_INIT_FUNC and DB_INIT_ARG
 
 # the global variable APP_DB will be initialized as the return value of DB_MODULE.DB_INIT_FUNC(DB_INIT_ARG)
 # we will throw an error if the provided value does not implement our abstract class DB below
+class Node(object):
+  __slots__ = ('name', 'path', 'local', 'is_leaf')
 
+  def __init__(self, path):
+    self.path = path
+    self.name = path.split('.')[-1]
+    self.local = True
+    self.is_leaf = False
+
+  def __repr__(self):
+    return '<%s[%x]: %s>' % (self.__class__.__name__, id(self), self.path)
+
+
+class BranchNode(Node):
+  pass
+
+
+class LeafNode(Node):
+  __slots__ = ('db', 'intervals')
+
+  def __init__(self, path, tsdb):
+    Node.__init__(self, path)
+    self.db = tsdb
+    self.intervals = tsdb.get_intervals(path)
+    self.is_leaf = True
+
+  def fetch(self, startTime, endTime):
+    return self.db.fetch(self.path, startTime, endTime)
+
+  def __repr__(self):
+    return '<LeafNode[%x]: %s >' % (id(self), self.path)
 
 class TSDB:
     __metaclass__= ABCMeta
@@ -77,16 +100,3 @@ class TSDB:
     @abstractmethod
     def get_intervals(self,metric):
         pass
-
-
-
-
-# application database
-APP_DB = WhisperDB() # default implementation
-
-# if we've configured a module to override, put that one in place instead of the default whisper db
-if (settings.DB_MODULE != "whisper" and settings.DB_INIT_FUNC != ""):
-    m = importlib.import_module(settings.DB_MODULE)
-    dbInitFunc = getattr(m,settings.DB_INIT_FUNC)
-    APP_DB = dbInitFunc(settings.DB_INIT_ARG)
-    assert isinstance(APP_DB,TSDB)

@@ -13,8 +13,8 @@ from urlparse import urlparse
 from thrift.transport import TSocket
 from thrift.transport import THttpClient
 
-from graphitedata.hbase import THBaseService
-from graphitedata.hbase.ttypes import *
+from hbase.ttypes import *
+from hbase import THBaseService
 
 if len(sys.argv) <= 1 or sys.argv[1] == '--help':
   print ''

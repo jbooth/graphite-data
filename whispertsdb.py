@@ -1,9 +1,10 @@
 import os
 from os.path import sep, join, dirname, basename, isdir, islink, realpath, isfile
-import whisper
 import time
-from node import BranchNode, LeafNode
 import fnmatch
+
+from node import BranchNode, LeafNode
+
 
 def is_escaped_pattern(s):
   for symbol in '*?[{':
@@ -19,7 +20,7 @@ def find_escaped_pattern_fields(pattern_string):
     if is_escaped_pattern(part):
       yield index
 
-class WhisperDB:
+class WhisperTSDB:
   __slots__ = ('dataDir')
   def __init__(self, dataDir):
     self.dataDir = dataDir

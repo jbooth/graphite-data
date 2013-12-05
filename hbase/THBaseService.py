@@ -7,10 +7,8 @@
 #
 
 from thrift.Thrift import TProcessor
-from thrift.transport import TTransport
-from thrift.protocol import TBinaryProtocol, TProtocol
 
-from graphitedata.hbase.ttypes import *
+from hbase.ttypes import *
 
 try:
   from thrift.protocol import fastbinary
