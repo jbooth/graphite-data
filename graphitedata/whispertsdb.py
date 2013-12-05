@@ -21,6 +21,9 @@ def find_escaped_pattern_fields(pattern_string):
     if is_escaped_pattern(part):
       yield index
 
+def NewWhisperTSDB(dataDir):
+    return WhisperTSDB(dataDir)
+
 class WhisperTSDB:
   __slots__ = ('dataDir')
   def __init__(self, dataDir):
