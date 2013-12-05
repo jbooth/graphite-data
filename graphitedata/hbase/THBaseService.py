@@ -8,7 +8,7 @@
 
 from thrift.Thrift import TProcessor
 
-from hbase.ttypes import *
+from graphitedata.hbase.ttypes import *
 
 try:
   from thrift.protocol import fastbinary

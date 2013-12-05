@@ -2,13 +2,13 @@ import json
 
 from thrift.transport import TSocket
 
-from hbase.ttypes import *
+from graphitedata.hbase.ttypes import *
 
 
 # we store all TS data in a single CF on the graphite-data cluster
 # TS datapoints are stored with key METRIC#UNIXTIME
 # TS metadata is stored with META#METRIC
-from hbase import THBaseService
+from graphitedata.hbase import THBaseService
 
 
 class HbaseTSDB:

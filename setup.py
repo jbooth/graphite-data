@@ -18,7 +18,6 @@ setup(
   author_email='jaybooth@gmail.com',
   license='Apache Software License 2.0',
   description='Pluggable persistence layer for Graphite',
-  py_modules=['tsdb','whispertsdb'],
-  packages=['hbase'],
+  packages=['graphitedata','graphitedata/hbase'],
   **setup_kwargs
 )
