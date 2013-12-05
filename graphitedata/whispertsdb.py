@@ -2,8 +2,9 @@ import os
 from os.path import sep, join, dirname, basename, isdir, islink, realpath, isfile
 import time
 import fnmatch
+import whisper
 
-from node import BranchNode, LeafNode
+from tsdb import BranchNode, LeafNode
 
 
 def is_escaped_pattern(s):
