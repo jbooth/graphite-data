@@ -1,1 +1,1 @@
-__all__ = ['ttypes', 'constants', 'THBaseService']
+__all__ = ['ttypes', 'constants', 'Hbase']
