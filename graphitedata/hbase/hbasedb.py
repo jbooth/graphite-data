@@ -1,7 +1,7 @@
 import json
 
 from thrift.transport import TSocket
-
+from graphitedata.tsdb import Node, BranchNode
 from graphitedata.hbase.ttypes import *
 from graphitedata.hbase.Hbase import Client
 
@@ -67,6 +67,7 @@ class HbaseTSDB:
     #}
     # where archives is a list of
     # archiveInfo = {
+    #  'archiveId': unique id,
     #  'offset' : offset,
     #  'secondsPerPoint' : secondsPerPoint,
     #  'points' : points,
@@ -91,8 +92,7 @@ class HbaseTSDB:
         currInfo['xFilesFactor'] = xFilesFactor
 
         infoJson = json.dumps(currInfo)
-        put = Put(row="m_"+metric, columnValues=[ColumnValue(family=self.cf,qualifier="INFO",value=infoJson)])
-        result = self.client.put(self.table,put)
+        self.client.mutateRow(self.metaTable,"m_" + metric,[Mutation(column="cf:INFO",value=infoJson)],None)
         return
 
 
@@ -128,9 +128,9 @@ class HbaseTSDB:
                 priorParts += "." + part
 
             # make sure parent of this node exists and is linked to us
-            parentLink = self.client.get(self.metaTable,metricParentKey,"cf:" + part,None)
+            parentLink = self.client.get(self.metaTable,metricParentKey,"cf:c_" + part,None)
             if len(parentLink) == 0:
-                self.client.mutateRow(self.metaTable,metricParentKey,[Mutation(column="cf:"+part,value=metricKey)],None)
+                self.client.mutateRow(self.metaTable,metricParentKey,[Mutation(column="cf:c_"+part,value=metricKey)],None)
 
 
     # datapoints is a list of (timestamp,value) points
@@ -138,7 +138,7 @@ class HbaseTSDB:
         pass
 
     def exists(self,metric):
-        return len(self.client.get(self.metaTable,"m_" + metric,"cf:INFO",None)) > 0
+        return len(self.client.getRow(self.metaTable,"m_" + metric,None)) > 0
 
 
     # fromTime is an epoch time
@@ -148,6 +148,9 @@ class HbaseTSDB:
     # where timeInfo is itself a tuple of (fromTime, untilTime, step)
     # Returns None if no data can be returned
     def fetch(self,metric,startTime,endTime):
+        pass
+
+    def fetch_id(self,id,startTime,endTime):
         pass
 
     # returns [ start, end ] where start,end are unixtime ints
@@ -165,50 +168,75 @@ class HbaseTSDB:
 
 
     def _find_paths(self, current_node, patterns):
-        """Recursively generates absolute paths whose components underneath current_dir
+        """Recursively generates absolute paths whose components underneath current_node
         match the corresponding pattern in patterns"""
         pattern = patterns[0]
         patterns = patterns[1:]
 
-        nodeRow = self.client.getRow(self.metaTable,current_node,None)
+        currNodeRowKey = "m_" + current_node
+        if current_node == "":
+            currNodeRowKey = "ROOT"
+        nodeRow = self.client.getRow(self.metaTable,currNodeRowKey,None)
         if len(nodeRow) == 0:
             return
 
-
-
-        subdirs = nodeRow[0].columns
-        subdirs = []
+        subnodes = []
         for k,v in nodeRow[0].columns:
-            subdirs.append(k.split(":")[1])
+            if k.startswith("cf:c_"): # branches start with c_
+                key = k.split("_",2)[1] # pop off cf:c_ prefix
+                subnodes[key] = v.value
 
-        matching_subdirs = match_entries(subdirs,pattern)
+
+
+        matching_subnodes = match_entries(subnodes,pattern)
+
 
         if patterns: # we've still got more directories to traverse
-            for subdir in matching_subdirs:
+            for subnode,rowKey in matching_subnodes:
+                for m in self._find_paths(self,rowKey,patterns):
+                    yield m
+                subNodeContents = self.client.getRow(rowKey)
 
-        else:
+                # leafs have a cf:INFO column describing their data
+                # we can't possibly match on a leaf here because we have more components in the pattern,
+                # so only recurse on branches
+                if "cf:INFO" not in subNodeContents[0].columns:
+                    for m in self._find_paths(rowKey,patterns):
+                        yield m
 
-        subdirs = [e for e in entries if isdir( join(current_dir,e) )]
 
-        matching_subdirs = match_entries(subdirs, pattern)
 
-        if patterns: #we've still got more directories to traverse
-            for subdir in matching_subdirs:
-
-            absolute_path = join(current_dir, subdir)
-                for match in self._find_paths(absolute_path, patterns):
-                yield match
-
-        else: #we've got the last pattern
-            files = [e for e in entries if isfile( join(current_dir,e) )]
-            matching_files = match_entries(files, pattern + '.*')
-
-            for basename in matching_files + matching_subdirs:
-                yield join(current_dir, basename)
+        else: # at the end of the pattern
+            for subnode,rowKey in matching_subnodes:
+                nodeRow = self.client.getRow(rowKey)
+                if len(nodeRow) == 0:
+                    continue
+                metric = rowKey.split("_",2)[1] # pop off "m_" in key
+                if "cf:INFO" in nodeRow[0].columns:
+                    info = json.loads(nodeRow[0].columns["cf:INFO"])
+                    yield HbaseLeafNode(metric,info,self)
+                else:
+                    yield BranchNode(metric)
 
 def NewHbaseTSDB(arg="localhost:9090:graphite_"):
     host,port,prefix = arg.split(":")
     return HbaseTSDB(host,port,prefix)
+
+class HbaseLeafNode(Node):
+    __slots__ = ('db', 'intervals','info')
+
+    def __init__(self, path, info, hbasedb):
+        Node.__init__(self, path)
+        self.db = hbasedb
+        self.info = info
+        self.intervals = hbasedb.get_intervals(path)
+        self.is_leaf = True
+
+    def fetch(self, startTime, endTime):
+        return self.db.fetch(self.path, startTime, endTime)
+
+    def __repr__(self):
+        return '<LeafNode[%x]: %s >' % (id(self), self.path)
 
 def match_entries(entries, pattern):
   """A drop-in replacement for fnmatch.filter that supports pattern
