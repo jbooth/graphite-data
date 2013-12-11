@@ -100,8 +100,10 @@ class HbaseTSDB:
     # xFilesFactor specifies the fraction of data points in a propagation interval that must have known values for a propagation to occur
     # aggregationMethod specifies the function to use when propogating data (see ``whisper.aggregationMethods``)
     def create(self, metric, archiveConfig, xFilesFactor, aggregationMethod, isSparse, doFallocate):
-        # first get our unique ID
-        newId = self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1)
+        # give each archiveConfig an ID
+        for a in archiveConfig:
+            a["archiveId"] = self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1)
+        #newId = self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1)
 
         # then write the metanode
         info = {
@@ -109,7 +111,7 @@ class HbaseTSDB:
             'maxRetention' : 21,
             'xFilesFactor' : xFilesFactor,
             'archives' : archiveConfig,
-            'id': newId
+            #'id': newId
         }
         self.client.mutateRow(self.metaTable,"m_" + metric,[Mutation(column="cf:INFO",value=json.dumps(info))],None)
         # finally, ensure links exist
