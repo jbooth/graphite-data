@@ -1,0 +1,64 @@
+# tests for an arbitrary DB
+from whispertsdb import NewWhisperTSDB
+from graphitedata.hbase.hbasedb import NewHbaseTSDB
+import os
+import shutil
+import tsdb
+
+def testCreateNodes(db):
+    db.create("branch1.branch2.metric1",
+              [(60,24*60*60)],
+              1,
+              'sum',
+              False,
+              False)
+
+    db.create("branch1.branch2.metric2",
+              [(60,24*60*60)],
+              1,
+              'sum',
+              False,
+              False)
+
+    db.create("branch1.branch3.metric4",
+              [(60,24*60*60)],
+              1,
+              'sum',
+              False,
+              False)
+
+
+    db.create("branch2.branch5.metric1",
+              [(60,24*60*60)],
+              1,
+              'sum',
+              False,
+              False)
+
+    def assertFindsMetrics(pattern,metrics):
+        foundMetrics = []
+        for node in db.find_nodes(tsdb.FindQuery(pattern)):
+            foundMetrics.append(node.path)
+        for m in metrics:
+            if m not in foundMetrics:
+                raise AssertionError("Metric " + metric + "not in nodes " + nodes.__str())
+
+
+    assertFindsMetrics("*",["branch1","branch2"])
+    assertFindsMetrics("*.*.*",["branch1.branch2.metric1","branch1.branch2.metric2","branch1.branch3.metric4","branch2.branch5.metric1"])
+    assertFindsMetrics("*.branch2.*",["branch1.branch2.metric1","branch1.branch2.metric2"])
+    assertFindsMetrics("*.branch{3,5}.*",["branch1.branch3.metric4","branch2.branch5.metric1"])
+
+
+
+print "testing whisper"
+if os.path.exists("/tmp/whisper"):
+    shutil.rmtree("/tmp/whisper",True)
+if not os.path.exists("/tmp/whisper"):
+    os.mkdir("/tmp/whisper")
+db = NewWhisperTSDB("/tmp/whisper")
+testCreateNodes(db)
+
+print "testing hbase"
+db = NewHbaseTSDB("localhost:9090:graphite_")
+testCreateNodes(db)

@@ -4,6 +4,7 @@ from thrift.transport import TSocket
 from graphitedata.tsdb import Node, BranchNode
 from graphitedata.hbase.ttypes import *
 from graphitedata.hbase.Hbase import Client
+import fnmatch
 
 
 # we manage a namespace table (NS) and then a data table (data)
@@ -99,26 +100,29 @@ class HbaseTSDB:
     # archiveList is a list of archives, each of which is of the form (secondsPerPoint,numberOfPoints)
     # xFilesFactor specifies the fraction of data points in a propagation interval that must have known values for a propagation to occur
     # aggregationMethod specifies the function to use when propogating data (see ``whisper.aggregationMethods``)
-    def create(self, metric, archiveConfig, xFilesFactor, aggregationMethod, isSparse, doFallocate):
+    def create(self, metric, archiveList, xFilesFactor, aggregationMethod, isSparse, doFallocate):
+
         # give each archiveConfig an ID
-        for a in archiveConfig:
-            a["archiveId"] = self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1)
+        archiveIds = list()
+
+        for a in archiveList:
+            archiveIds.append(self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1))
         #newId = self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1)
 
+        oldest = max([secondsPerPoint * points for secondsPerPoint,points in archiveList])
         # then write the metanode
         info = {
             'aggregationMethod' : aggregationMethod,
             'maxRetention' : 21,
             'xFilesFactor' : xFilesFactor,
-            'archives' : archiveConfig,
-            #'id': newId
+            'archives' : archiveList,
+            'archiveIDs' : archiveIds,
         }
         self.client.mutateRow(self.metaTable,"m_" + metric,[Mutation(column="cf:INFO",value=json.dumps(info))],None)
         # finally, ensure links exist
         metric_parts = metric.split('.')
         priorParts = ""
         for part in metric_parts:
-            metricParentKey,metricKey = ""
             # if parent is empty, special case for root
             if priorParts == "":
                 metricParentKey = "ROOT"
@@ -165,39 +169,31 @@ class HbaseTSDB:
         clean_pattern = query.pattern.replace('\\', '')
         pattern_parts = clean_pattern.split('.')
 
-        # walk the nodes in our namespace table
-        pass
+        return self._find_paths("ROOT",pattern_parts)
 
-
-    def _find_paths(self, current_node, patterns):
+    def _find_paths(self, currNodeRowKey, patterns):
         """Recursively generates absolute paths whose components underneath current_node
         match the corresponding pattern in patterns"""
         pattern = patterns[0]
         patterns = patterns[1:]
 
-        currNodeRowKey = "m_" + current_node
-        if current_node == "":
-            currNodeRowKey = "ROOT"
         nodeRow = self.client.getRow(self.metaTable,currNodeRowKey,None)
         if len(nodeRow) == 0:
             return
 
-        subnodes = []
-        for k,v in nodeRow[0].columns:
+        subnodes = {}
+        for k,v in nodeRow[0].columns.items():
             if k.startswith("cf:c_"): # branches start with c_
                 key = k.split("_",2)[1] # pop off cf:c_ prefix
                 subnodes[key] = v.value
 
+        matching_subnodes = match_entries(subnodes.keys(),pattern)
 
-
-        matching_subnodes = match_entries(subnodes,pattern)
-
-
+        #print "rowkey: " + currNodeRowKey + " matching subnodes:  " + matching_subnodes.__str__()
         if patterns: # we've still got more directories to traverse
-            for subnode,rowKey in matching_subnodes:
-                for m in self._find_paths(self,rowKey,patterns):
-                    yield m
-                subNodeContents = self.client.getRow(rowKey)
+            for subnode in matching_subnodes:
+                rowKey = subnodes[subnode]
+                subNodeContents = self.client.getRow(self.metaTable,rowKey,None)
 
                 # leafs have a cf:INFO column describing their data
                 # we can't possibly match on a leaf here because we have more components in the pattern,
@@ -209,13 +205,14 @@ class HbaseTSDB:
 
 
         else: # at the end of the pattern
-            for subnode,rowKey in matching_subnodes:
-                nodeRow = self.client.getRow(rowKey)
+            for subnode in matching_subnodes:
+                rowKey = subnodes[subnode]
+                nodeRow = self.client.getRow(self.metaTable,rowKey,None)
                 if len(nodeRow) == 0:
                     continue
                 metric = rowKey.split("_",2)[1] # pop off "m_" in key
                 if "cf:INFO" in nodeRow[0].columns:
-                    info = json.loads(nodeRow[0].columns["cf:INFO"])
+                    info = json.loads(nodeRow[0].columns["cf:INFO"].value)
                     yield HbaseLeafNode(metric,info,self)
                 else:
                     yield BranchNode(metric)
@@ -259,3 +256,11 @@ def match_entries(entries, pattern):
     matching = fnmatch.filter(entries, pattern)
     matching.sort()
     return matching
+
+
+def _deduplicate(entries):
+  yielded = set()
+  for entry in entries:
+    if entry not in yielded:
+      yielded.add(entry)
+      yield entry

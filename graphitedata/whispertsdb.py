@@ -44,7 +44,12 @@ class WhisperTSDB:
   def create(self,metric,archiveConfig,xFilesFactor=None,aggregationMethod=None,sparse=False,useFallocate=False):
     dbFilePath = self.getFilesystemPath(metric)
     dbDir = dirname(dbFilePath)
-    os.makedirs(dbDir, 0755)
+
+    try:
+        if not (os.path.exists(dbDir)):
+            os.makedirs(dbDir, 0755)
+    except Exception as e:
+        print("Error creating dir " + dbDir + " : " + e)
     return whisper.create(dbFilePath, archiveConfig,xFilesFactor,aggregationMethod,sparse,useFallocate)
 
   def update_many(self,metric,datapoints):
