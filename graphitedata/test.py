@@ -41,13 +41,14 @@ def testCreateNodes(db):
             foundMetrics.append(node.path)
         for m in metrics:
             if m not in foundMetrics:
-                raise AssertionError("Metric " + metric + "not in nodes " + nodes.__str())
+                raise AssertionError("Metric " + m + "not in nodes " + node.__str())
 
 
     assertFindsMetrics("*",["branch1","branch2"])
     assertFindsMetrics("*.*.*",["branch1.branch2.metric1","branch1.branch2.metric2","branch1.branch3.metric4","branch2.branch5.metric1"])
     assertFindsMetrics("*.branch2.*",["branch1.branch2.metric1","branch1.branch2.metric2"])
     assertFindsMetrics("*.branch{3,5}.*",["branch1.branch3.metric4","branch2.branch5.metric1"])
+    print db.info("branch1.branch2.metric1")
 
 
 

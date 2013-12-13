@@ -14,3 +14,20 @@ def find_escaped_pattern_fields(pattern_string):
   for index,part in enumerate(pattern_parts):
     if is_escaped_pattern(part):
       yield index
+
+
+
+def aggregate(aggregationMethod, knownValues):
+  if aggregationMethod == 'average':
+    return float(sum(knownValues)) / float(len(knownValues))
+  elif aggregationMethod == 'sum':
+    return float(sum(knownValues))
+  elif aggregationMethod == 'last':
+    return knownValues[len(knownValues)-1]
+  elif aggregationMethod == 'max':
+    return max(knownValues)
+  elif aggregationMethod == 'min':
+    return min(knownValues)
+  else:
+    raise Exception("Unrecognized aggregation method %s" %
+            aggregationMethod)

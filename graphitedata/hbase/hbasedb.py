@@ -1,10 +1,14 @@
 import json
+import fnmatch
+import time
+import struct
 
 from thrift.transport import TSocket
 from graphitedata.tsdb import Node, BranchNode
 from graphitedata.hbase.ttypes import *
 from graphitedata.hbase.Hbase import Client
-import fnmatch
+from graphitedata import util
+
 
 
 # we manage a namespace table (NS) and then a data table (data)
@@ -33,7 +37,8 @@ import fnmatch
 
 # we then maintain a data table with keys that are a compound of metric ID + unix timestamp for 8 byte keys
 
-
+dataKeyFmt = ">LL"
+dataValFmt = ">Ld"
 
 class HbaseTSDB:
     __slots__ = ('transport','client','metaTable','dataTable')
@@ -69,9 +74,8 @@ class HbaseTSDB:
     # where archives is a list of
     # archiveInfo = {
     #  'archiveId': unique id,
-    #  'offset' : offset,
     #  'secondsPerPoint' : secondsPerPoint,
-    #  'points' : points,
+    #  'points' : points, number of points per
     #  'retention' : secondsPerPoint    * points,
     #  'size' : points * pointSize,
     #}
@@ -102,21 +106,17 @@ class HbaseTSDB:
     # aggregationMethod specifies the function to use when propogating data (see ``whisper.aggregationMethods``)
     def create(self, metric, archiveList, xFilesFactor, aggregationMethod, isSparse, doFallocate):
 
-        # give each archiveConfig an ID
-        archiveIds = list()
-
         for a in archiveList:
-            archiveIds.append(self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1))
+            a['archiveId'] = (self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1))
         #newId = self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1)
 
         oldest = max([secondsPerPoint * points for secondsPerPoint,points in archiveList])
         # then write the metanode
         info = {
             'aggregationMethod' : aggregationMethod,
-            'maxRetention' : 21,
+            'maxRetention' : oldest,
             'xFilesFactor' : xFilesFactor,
             'archives' : archiveList,
-            'archiveIDs' : archiveIds,
         }
         self.client.mutateRow(self.metaTable,"m_" + metric,[Mutation(column="cf:INFO",value=json.dumps(info))],None)
         # finally, ensure links exist
@@ -139,9 +139,106 @@ class HbaseTSDB:
                 self.client.mutateRow(self.metaTable,metricParentKey,[Mutation(column="cf:c_"+part,value=metricKey)],None)
 
 
-    # datapoints is a list of (timestamp,value) points
-    def update_many(self, metric, datapoints):
-        pass
+    # points is a list of (timestamp,value) points
+    def update_many(self, metric, points):
+        info = self.info(metric)
+        now = int( time.time() )
+        archives = iter( info['archives'] )
+        archiveIds = iter(info['archiveIds'])
+        currentArchive = archives.next()
+        currentId = archiveIds.next()
+        currentPoints = []
+
+        for point in points:
+            age = now - point[0]
+
+            while currentArchive['retention'] < age: #we can't fit any more points in this archive
+                if currentPoints: #commit all the points we've found that it can fit
+                    currentPoints.reverse() #put points in chronological order
+                    self.__archive_update_many(info,currentId,currentArchive,currentPoints)
+                    currentPoints = []
+                try:
+                    currentArchive = archives.next()
+                    currentId = archiveIds.next()
+                except StopIteration:
+                    currentArchive = None
+                    break
+
+            if not currentArchive:
+                break #drop remaining points that don't fit in the database
+
+            currentPoints.append(point)
+
+        if currentArchive and currentPoints: #don't forget to commit after we've checked all the archives
+            currentPoints.reverse()
+            self.__archive_update_many(info,currentId,currentArchive,currentPoints)
+
+    def __archive_update_many(self,info,archiveId,archive,points):
+        numPoints = archive['points']
+        step = archive['secondsPerPoint']
+        alignedPoints = [(timestamp - (timestamp % step), value)
+                         for (timestamp,value) in points ]
+        alignedPoints = dict(alignedPoints).items() # Take the last val of duplicates
+
+        for timestamp,value in alignedPoints:
+            slot = (timestamp / step) % numPoints
+            rowkey = struct.pack(dataKeyFmt,archiveId,slot)
+            rowval = struct.pack(dataValFmt,timestamp,value)
+            self.client.mutateRow(self.dataTable,rowkey,[Mutation(column="cf:d",value=rowval)],None)
+
+        #Now we propagate the updates to lower-precision archives
+        higher = archive
+        lowerArchives = [arc for arc in info['archives'] if arc['secondsPerPoint'] > archive['secondsPerPoint']]
+
+        for lower in lowerArchives:
+            fit = lambda i: i - (i % lower['secondsPerPoint'])
+            lowerIntervals = [fit(p[0]) for p in alignedPoints]
+            uniqueLowerIntervals = set(lowerIntervals)
+            propagateFurther = False
+            for interval in uniqueLowerIntervals:
+                if self.__propagate(info, interval, higher, lower):
+                    propagateFurther = True
+
+            if not propagateFurther:
+                break
+            higher = lower
+
+    def __propagate(self,info,timestamp,higher,lower):
+        aggregationMethod = info['aggregationMethod']
+        xff = info['xFilesFactor']
+
+        # we want to update the items from higher between these two
+        intervalStart = timestamp - (timestamp % lower['secondsPerPoint'])
+        intervalEnd = intervalStart + lower['secondsPerPoint']
+
+        higherResData = self.__archive_fetch(higher['archiveId'],intervalStart,intervalEnd)
+
+        known_datapts = [v for v in higherResData if v is not None] # strip out "nones"
+        if (len(known_datapts) / len(higherResData)) > xff: # we have enough data, so propagate downwards
+            aggregateValue = util.aggregate(aggregationMethod,known_datapts)
+            lowerSlot = timestamp / lower['secondsPerPoint'] % lower['numPoints']
+            rowkey = struct.pack(dataKeyFmt,lower['archiveId'],lowerSlot)
+            rowval = struct.pack(dataValFmt,timestamp,aggregateValue)
+            self.client.mutateRow(self.dataTable,rowkey,[Mutation(column="cf:d",value=rowval)],None)
+
+    # returns list of values between the two times.  length is endTime - startTime / secondsPerPorint.
+    # should be aligned with secondsPerPoint for proper results
+    def __archive_fetch(self,archive,startTime,endTime):
+
+        startkey = struct.pack(dataKeyFmt,archive['archiveId'],startTime)
+        endkey = struct.pack(dataKeyFmt,archive['archiveId'],endTime)
+        scannerId = self.client.scannerOpenWithStop(self.dataTable,startkey,endkey,["cf:d"],None)
+
+        numSlots = (endTime - startTime) / archive['secondsPerPoint']
+        ret = [None] * numSlots
+
+        for row in self.client.scannerGetList(scannerId,100000):
+            (timestamp,value) = struct.unpack(dataValFmt,row.Columns["cf:d"])
+            slot = (timestamp - startTime) / archive['secondsPerPoint']
+            ret[slot] = value
+        self.client.scannerClose(scannerId)
+        return ret
+
 
     def exists(self,metric):
         return len(self.client.getRow(self.metaTable,"m_" + metric,None)) > 0
@@ -153,11 +250,28 @@ class HbaseTSDB:
     # Returns a tuple of (timeInfo, valueList)
     # where timeInfo is itself a tuple of (fromTime, untilTime, step)
     # Returns None if no data can be returned
-    def fetch(self,metric,startTime,endTime):
-        pass
+    def fetch(self,info,fromTime,untilTime):
+        now = int( time.time() )
+        if untilTime is None:
+            untilTime = now
+        fromTime = int(fromTime)
+        untilTime = int(untilTime)
+        if untilTime > now:
+            untilTime = now
+        if (fromTime > untilTime):
+            raise Exception("Invalid time interval: from time '%s' is after until time '%s'" % (fromTime, untilTime))
 
-    def fetch_id(self,id,startTime,endTime):
-        pass
+        if fromTime > now:  # from time in the future
+            return None
+        oldestTime = now - info['maxRetention']
+        if fromTime < oldestTime:
+            fromTime = oldestTime
+        # iterate archives to find the smallest
+        diff = now - fromTime
+        for archive in info['archives']:
+            if archive['retention'] >= diff:
+                break
+        return self.__archive_fetch(archive,fromTime,untilTime)
 
     # returns [ start, end ] where start,end are unixtime ints
     def get_intervals(self,metric):
@@ -264,3 +378,4 @@ def _deduplicate(entries):
     if entry not in yielded:
       yielded.add(entry)
       yield entry
+
