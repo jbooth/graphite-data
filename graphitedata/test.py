@@ -4,24 +4,25 @@ from graphitedata.hbase.hbasedb import NewHbaseTSDB
 import os
 import shutil
 import tsdb
+import time
 
 def testCreateNodes(db):
     db.create("branch1.branch2.metric1",
-              [(60,24*60*60)],
+              [(60,24*60)],
               1,
               'sum',
               False,
               False)
 
     db.create("branch1.branch2.metric2",
-              [(60,24*60*60)],
+              [(60,24*60)],
               1,
               'sum',
               False,
               False)
 
     db.create("branch1.branch3.metric4",
-              [(60,24*60*60)],
+              [(60,24*60)],
               1,
               'sum',
               False,
@@ -29,7 +30,7 @@ def testCreateNodes(db):
 
 
     db.create("branch2.branch5.metric1",
-              [(60,24*60*60)],
+              [(60,24*60)],
               1,
               'sum',
               False,
@@ -49,6 +50,12 @@ def testCreateNodes(db):
     assertFindsMetrics("*.branch2.*",["branch1.branch2.metric1","branch1.branch2.metric2"])
     assertFindsMetrics("*.branch{3,5}.*",["branch1.branch3.metric4","branch2.branch5.metric1"])
     print db.info("branch1.branch2.metric1")
+    db.update_many("branch1.branch2.metric1",[(time.time(),1.0),(time.time()-120,2.0)])
+    #print db.get_intervals("branch1.branch2.metric1")
+    node = db.find_nodes(tsdb.FindQuery("branch1.branch2.metric1")).next()
+
+    print node.fetch(time.time() - 180,time.time())
+    # now test data
 
 
 

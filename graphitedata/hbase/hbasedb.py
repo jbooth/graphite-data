@@ -40,6 +40,13 @@ from graphitedata import util
 dataKeyFmt = ">LL"
 dataValFmt = ">Ld"
 
+class ArchiveConfig:
+    __slots__ = ('archiveId','secondsPerPoint','points')
+
+    def __init__(self,tuple,id):
+        self.secondsPerPoint,self.points = tuple
+        self.archiveId = id
+
 class HbaseTSDB:
     __slots__ = ('transport','client','metaTable','dataTable')
 
@@ -106,8 +113,17 @@ class HbaseTSDB:
     # aggregationMethod specifies the function to use when propogating data (see ``whisper.aggregationMethods``)
     def create(self, metric, archiveList, xFilesFactor, aggregationMethod, isSparse, doFallocate):
 
-        for a in archiveList:
-            a['archiveId'] = (self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1))
+        #for a in archiveList:
+        #    a['archiveId'] = (self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1))
+
+        archiveMapList = [
+            {'archiveId': (self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1)),
+             'secondsPerPoint': a[0],
+             'points': a[1],
+             'retention': a[0] * a[1],
+            }
+            for a in archiveList
+        ]
         #newId = self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1)
 
         oldest = max([secondsPerPoint * points for secondsPerPoint,points in archiveList])
@@ -116,7 +132,7 @@ class HbaseTSDB:
             'aggregationMethod' : aggregationMethod,
             'maxRetention' : oldest,
             'xFilesFactor' : xFilesFactor,
-            'archives' : archiveList,
+            'archives' : archiveMapList,
         }
         self.client.mutateRow(self.metaTable,"m_" + metric,[Mutation(column="cf:INFO",value=json.dumps(info))],None)
         # finally, ensure links exist
@@ -144,9 +160,7 @@ class HbaseTSDB:
         info = self.info(metric)
         now = int( time.time() )
         archives = iter( info['archives'] )
-        archiveIds = iter(info['archiveIds'])
         currentArchive = archives.next()
-        currentId = archiveIds.next()
         currentPoints = []
 
         for point in points:
@@ -155,11 +169,10 @@ class HbaseTSDB:
             while currentArchive['retention'] < age: #we can't fit any more points in this archive
                 if currentPoints: #commit all the points we've found that it can fit
                     currentPoints.reverse() #put points in chronological order
-                    self.__archive_update_many(info,currentId,currentArchive,currentPoints)
+                    self.__archive_update_many(info,currentArchive,currentPoints)
                     currentPoints = []
                 try:
                     currentArchive = archives.next()
-                    currentId = archiveIds.next()
                 except StopIteration:
                     currentArchive = None
                     break
@@ -171,19 +184,22 @@ class HbaseTSDB:
 
         if currentArchive and currentPoints: #don't forget to commit after we've checked all the archives
             currentPoints.reverse()
-            self.__archive_update_many(info,currentId,currentArchive,currentPoints)
+            self.__archive_update_many(info,currentArchive,currentPoints)
 
-    def __archive_update_many(self,info,archiveId,archive,points):
+    def __archive_update_many(self,info,archive,points):
         numPoints = archive['points']
         step = archive['secondsPerPoint']
+        archiveId = archive['archiveId']
         alignedPoints = [(timestamp - (timestamp % step), value)
                          for (timestamp,value) in points ]
         alignedPoints = dict(alignedPoints).items() # Take the last val of duplicates
 
         for timestamp,value in alignedPoints:
-            slot = (timestamp / step) % numPoints
+            slot = int((timestamp / step) % numPoints)
+            print "putting timestamp " + timestamp.__str__() + " into slot " + slot.__str__()
             rowkey = struct.pack(dataKeyFmt,archiveId,slot)
             rowval = struct.pack(dataValFmt,timestamp,value)
+            print("put rowkey: " + rowkey + " roval: " + rowval)
             self.client.mutateRow(self.dataTable,rowkey,[Mutation(column="cf:d",value=rowval)],None)
 
         #Now we propagate the updates to lower-precision archives
@@ -219,24 +235,43 @@ class HbaseTSDB:
             lowerSlot = timestamp / lower['secondsPerPoint'] % lower['numPoints']
             rowkey = struct.pack(dataKeyFmt,lower['archiveId'],lowerSlot)
             rowval = struct.pack(dataValFmt,timestamp,aggregateValue)
+            print("put rowkey: " + rowkey + " roval: " + rowval)
             self.client.mutateRow(self.dataTable,rowkey,[Mutation(column="cf:d",value=rowval)],None)
 
     # returns list of values between the two times.  length is endTime - startTime / secondsPerPorint.
     # should be aligned with secondsPerPoint for proper results
     def __archive_fetch(self,archive,startTime,endTime):
+        step = archive['secondsPerPoint']
+        numPoints = archive['points']
+        startTime = int(startTime - (startTime % step))
+        endTime = int(endTime - (endTime % step))
+        startSlot = int((startTime / step) % numPoints)
+        endSlot = int((endTime / step) % numPoints)
+        print "startTime " + startTime.__str__() + " endtime " + endTime.__str__()
+        print "startSlot " + startSlot.__str__() + " end slot " + endSlot.__str__()
+        if startSlot > endSlot: # we wrapped so make 2 queries
+            ranges = [(0,endSlot+1),(startSlot,numPoints)]
+        else:
+            ranges = [(startSlot,endSlot+1)]
 
-        startkey = struct.pack(dataKeyFmt,archive['archiveId'],startTime)
-        endkey = struct.pack(dataKeyFmt,archive['archiveId'],endTime)
-        scannerId = self.client.scannerOpenWithStop(self.dataTable,startkey,endkey,["cf:d"],None)
+        print "ranges: " + ranges.__str__()
+        for t in ranges:
+            startkey = struct.pack(dataKeyFmt,archive['archiveId'],t[0])
+            endkey = struct.pack(dataKeyFmt,archive['archiveId'],t[1])
+            print "scanning startkey: " + startkey.__str__() + ", endkey: " + endkey
+            scannerId = self.client.scannerOpenWithStop(self.dataTable,startkey,endkey,["cf:d"],None)
 
-        numSlots = (endTime - startTime) / archive['secondsPerPoint']
-        ret = [None] * numSlots
+            numSlots = (endTime - startTime) / archive['secondsPerPoint']
+            ret = [None] * numSlots
 
-        for row in self.client.scannerGetList(scannerId,100000):
-            (timestamp,value) = struct.unpack(dataValFmt,row.Columns["cf:d"])
-            slot = (timestamp - startTime) / archive['secondsPerPoint']
-            ret[slot] = value
-        self.client.scannerClose(scannerId)
+            for row in self.client.scannerGetList(scannerId,100000):
+                print row.columns
+                print "got row with data val " + row.columns["cf:d"].value
+                (timestamp,value) = struct.unpack(dataValFmt,row.columns["cf:d"].value)
+                if timestamp >= startTime and timestamp <= endTime:
+                    returnslot = (timestamp - startTime) / archive['secondsPerPoint'] - 1
+                    ret[returnslot] = value
+            self.client.scannerClose(scannerId)
         return ret
 
 
@@ -346,7 +381,7 @@ class HbaseLeafNode(Node):
         self.is_leaf = True
 
     def fetch(self, startTime, endTime):
-        return self.db.fetch(self.path, startTime, endTime)
+        return self.db.fetch(self.info, startTime, endTime)
 
     def __repr__(self):
         return '<LeafNode[%x]: %s >' % (id(self), self.path)
