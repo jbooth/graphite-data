@@ -196,10 +196,8 @@ class HbaseTSDB:
 
         for timestamp,value in alignedPoints:
             slot = int((timestamp / step) % numPoints)
-            print "putting timestamp " + timestamp.__str__() + " into slot " + slot.__str__()
             rowkey = struct.pack(dataKeyFmt,archiveId,slot)
             rowval = struct.pack(dataValFmt,timestamp,value)
-            print("put rowkey: " + rowkey + " roval: " + rowval)
             self.client.mutateRow(self.dataTable,rowkey,[Mutation(column="cf:d",value=rowval)],None)
 
         #Now we propagate the updates to lower-precision archives
@@ -235,7 +233,6 @@ class HbaseTSDB:
             lowerSlot = timestamp / lower['secondsPerPoint'] % lower['numPoints']
             rowkey = struct.pack(dataKeyFmt,lower['archiveId'],lowerSlot)
             rowval = struct.pack(dataValFmt,timestamp,aggregateValue)
-            print("put rowkey: " + rowkey + " roval: " + rowval)
             self.client.mutateRow(self.dataTable,rowkey,[Mutation(column="cf:d",value=rowval)],None)
 
     # returns list of values between the two times.  length is endTime - startTime / secondsPerPorint.
@@ -243,36 +240,30 @@ class HbaseTSDB:
     def __archive_fetch(self,archive,startTime,endTime):
         step = archive['secondsPerPoint']
         numPoints = archive['points']
-        startTime = int(startTime - (startTime % step))
-        endTime = int(endTime - (endTime % step))
+        startTime = int(startTime - (startTime % step) + step)
+        endTime = int(endTime - (endTime % step) + step)
         startSlot = int((startTime / step) % numPoints)
         endSlot = int((endTime / step) % numPoints)
-        print "startTime " + startTime.__str__() + " endtime " + endTime.__str__()
-        print "startSlot " + startSlot.__str__() + " end slot " + endSlot.__str__()
         if startSlot > endSlot: # we wrapped so make 2 queries
             ranges = [(0,endSlot+1),(startSlot,numPoints)]
         else:
             ranges = [(startSlot,endSlot+1)]
-
-        print "ranges: " + ranges.__str__()
         for t in ranges:
             startkey = struct.pack(dataKeyFmt,archive['archiveId'],t[0])
             endkey = struct.pack(dataKeyFmt,archive['archiveId'],t[1])
-            print "scanning startkey: " + startkey.__str__() + ", endkey: " + endkey
             scannerId = self.client.scannerOpenWithStop(self.dataTable,startkey,endkey,["cf:d"],None)
 
             numSlots = (endTime - startTime) / archive['secondsPerPoint']
             ret = [None] * numSlots
 
             for row in self.client.scannerGetList(scannerId,100000):
-                print row.columns
-                print "got row with data val " + row.columns["cf:d"].value
                 (timestamp,value) = struct.unpack(dataValFmt,row.columns["cf:d"].value)
                 if timestamp >= startTime and timestamp <= endTime:
-                    returnslot = (timestamp - startTime) / archive['secondsPerPoint'] - 1
+                    returnslot = (timestamp - startTime) / archive['secondsPerPoint']
                     ret[returnslot] = value
             self.client.scannerClose(scannerId)
-        return ret
+        timeInfo = (startTime,endTime,step)
+        return timeInfo,ret
 
 
     def exists(self,metric):
@@ -338,7 +329,6 @@ class HbaseTSDB:
 
         matching_subnodes = match_entries(subnodes.keys(),pattern)
 
-        #print "rowkey: " + currNodeRowKey + " matching subnodes:  " + matching_subnodes.__str__()
         if patterns: # we've still got more directories to traverse
             for subnode in matching_subnodes:
                 rowKey = subnodes[subnode]
