@@ -301,7 +301,9 @@ class HbaseTSDB:
 
     # returns [ start, end ] where start,end are unixtime ints
     def get_intervals(self,metric):
-        pass
+        start = time.time() - self.info(metric)['maxRetention']
+        end = time.time()
+        return [start,end]
 
     # returns list of metrics as strings
     def find_nodes(self,query):
