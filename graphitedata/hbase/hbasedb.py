@@ -358,7 +358,8 @@ class HbaseTSDB:
 
 def NewHbaseTSDB(arg="localhost:9090:graphite_"):
     host,port,prefix = arg.split(":")
-    return HbaseTSDB(host,port,prefix)
+    #print "Constructing hbase tsdb, host " + host + " , port " + port + " , prefix" + prefix
+    return HbaseTSDB(host,int(port),prefix)
 
 class HbaseLeafNode(Node):
     __slots__ = ('db', 'intervals','info')
