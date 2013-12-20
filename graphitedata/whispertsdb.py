@@ -4,7 +4,7 @@ import time
 import fnmatch
 import whisper
 
-from tsdb import BranchNode, LeafNode
+from tsdb import BranchNode, LeafNode, TSDB
 
 
 def is_escaped_pattern(s):
@@ -24,7 +24,7 @@ def find_escaped_pattern_fields(pattern_string):
 def NewWhisperTSDB(dataDir):
     return WhisperTSDB(dataDir)
 
-class WhisperTSDB:
+class WhisperTSDB(TSDB):
   __slots__ = ('dataDir')
   def __init__(self, dataDir):
     self.dataDir = dataDir

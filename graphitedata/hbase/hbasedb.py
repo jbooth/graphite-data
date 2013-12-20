@@ -4,7 +4,7 @@ import time
 import struct
 
 from thrift.transport import TSocket
-from graphitedata.tsdb import Node, BranchNode
+from graphitedata.tsdb import Node, BranchNode, TSDB
 from graphitedata.hbase.ttypes import *
 from graphitedata.hbase.Hbase import Client
 from graphitedata import util
@@ -47,7 +47,7 @@ class ArchiveConfig:
         self.secondsPerPoint,self.points = tuple
         self.archiveId = id
 
-class HbaseTSDB:
+class HbaseTSDB(TSDB):
     __slots__ = ('transport','client','metaTable','dataTable')
 
     def __init__(self, host,port,table_prefix):
