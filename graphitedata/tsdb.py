@@ -35,6 +35,8 @@ class LeafNode(Node):
     self.intervals = tsdb.get_intervals(path)
     self.is_leaf = True
 
+  # Returns a tuple of (timeInfo, valueList)
+  # where timeInfo is itself a tuple of (fromTime, untilTime, step)
   def fetch(self, startTime, endTime):
     return self.db.fetch(self.path, startTime, endTime)
 
@@ -164,18 +166,6 @@ class TSDB:
 
     @abstractmethod
     def exists(self,metric):
-        pass
-
-
-    # fromTime is an epoch time
-    # untilTime is also an epoch time, but defaults to now.
-    #
-    # Returns a tuple of (timeInfo, valueList)
-    # where timeInfo is itself a tuple of (fromTime, untilTime, step)
-    # Returns None if no data can be returned
-
-    # optional method, find_nodes is what's important
-    def fetch(self,metric,startTime,endTime):
         pass
 
     @abstractmethod
