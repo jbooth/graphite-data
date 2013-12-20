@@ -173,10 +173,14 @@ class TSDB:
     # Returns a tuple of (timeInfo, valueList)
     # where timeInfo is itself a tuple of (fromTime, untilTime, step)
     # Returns None if no data can be returned
-    @abstractmethod
+
+    # optional method, find_nodes is what's important
     def fetch(self,metric,startTime,endTime):
         pass
 
+    @abstractmethod
+    def find_nodes(self,query):
+        pass
     # returns [ start, end ] where start,end are unixtime ints
     @abstractmethod
     def get_intervals(self,metric):
