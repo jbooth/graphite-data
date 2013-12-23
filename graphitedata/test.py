@@ -53,6 +53,22 @@ def testCreateNodes(db):
     db.update_many("branch1.branch2.metric1",[(time.time(),1.0),(time.time()-120,2.0)])
     #print db.get_intervals("branch1.branch2.metric1")
     node = db.find_nodes(tsdb.FindQuery("branch1.branch2.metric1")).next()
+    print node.fetch(time.time() - 180,time.time())
+
+def testData(db):
+    db.create("data.metric1",
+              [(60,24*60),(3600,24*7)], # retention is minutely for 1 day, then hourly for 1 week
+              1,
+              'sum',
+              False,
+              False)
+
+    # log some minutely stats
+
+    db.update_many("data.metric1",[(time.time(),1.0),(time.time()-120,2.0)])
+
+    node = db.find_nodes(tsdb.FindQuery("data.metric1")).next()
+
 
     print node.fetch(time.time() - 180,time.time())
     # now test data
@@ -69,4 +85,6 @@ testCreateNodes(db)
 
 print "testing hbase"
 db = NewHbaseTSDB("localhost:9090:graphite_")
+assert isinstance(db,tsdb.TSDB)
+
 testCreateNodes(db)

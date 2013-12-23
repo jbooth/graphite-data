@@ -303,15 +303,15 @@ class HbaseTSDB(TSDB):
     def get_intervals(self,metric):
         start = time.time() - self.info(metric)['maxRetention']
         end = time.time()
-        return [start,end]
+        return IntervalSet( [Interval(start, end)] )
 
     # returns list of metrics as strings
     def find_nodes(self,query):
         # break query into parts
         clean_pattern = query.pattern.replace('\\', '')
         pattern_parts = clean_pattern.split('.')
-
-        return self._find_paths("ROOT",pattern_parts)
+        ret = self._find_paths("ROOT",pattern_parts)
+        return ret
 
     def _find_paths(self, currNodeRowKey, patterns):
         """Recursively generates absolute paths whose components underneath current_node
