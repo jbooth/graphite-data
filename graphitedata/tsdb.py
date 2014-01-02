@@ -170,6 +170,7 @@ class TSDB:
     def exists(self,metric):
         pass
 
+    # returns a generator of (metric,is_leaf) pairs.  metric is a string like "foo.bar.mymetric" and is_leaf is a boolean
     @abstractmethod
     def find_nodes(self,query):
         pass

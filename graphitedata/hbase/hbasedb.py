@@ -277,6 +277,7 @@ class HbaseTSDB(TSDB):
     # where timeInfo is itself a tuple of (fromTime, untilTime, step)
     # Returns None if no data can be returned
     def fetch(self,info,fromTime,untilTime):
+        print 'fetching data from %d to %d for metric with info %s' % (fromTime,untilTime,info)
         now = int( time.time() )
         if untilTime is None:
             untilTime = now
@@ -373,11 +374,14 @@ class HbaseLeafNode(Node):
         self.intervals = hbasedb.get_intervals(path)
         self.is_leaf = True
 
+    def get_intervals(self):
+        return self.intervals
+
     def fetch(self, startTime, endTime):
         return self.db.fetch(self.info, startTime, endTime)
 
     def __repr__(self):
-        return '<LeafNode[%x]: %s >' % (id(self), self.path)
+        return '<HbaseLeafNode[%x]: %s >' % (id(self), self.path)
 
 def match_entries(entries, pattern):
   """A drop-in replacement for fnmatch.filter that supports pattern
