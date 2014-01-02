@@ -277,7 +277,6 @@ class HbaseTSDB(TSDB):
     # where timeInfo is itself a tuple of (fromTime, untilTime, step)
     # Returns None if no data can be returned
     def fetch(self,info,fromTime,untilTime):
-        print 'fetching data from %d to %d for metric with info %s' % (fromTime,untilTime,info)
         now = int( time.time() )
         if untilTime is None:
             untilTime = now
