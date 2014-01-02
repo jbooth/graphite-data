@@ -259,7 +259,7 @@ class HbaseTSDB(TSDB):
             for row in self.client.scannerGetList(scannerId,100000):
                 (timestamp,value) = struct.unpack(dataValFmt,row.columns["cf:d"].value)
                 if timestamp >= startTime and timestamp <= endTime:
-                    returnslot = (timestamp - startTime) / archive['secondsPerPoint']
+                    returnslot = int(timestamp / archive['secondsPerPoint']) % numSlots
                     ret[returnslot] = value
             self.client.scannerClose(scannerId)
         timeInfo = (startTime,endTime,step)
