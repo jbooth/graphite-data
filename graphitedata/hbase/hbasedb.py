@@ -4,10 +4,13 @@ import time
 import struct
 
 from thrift.transport import TSocket
-from graphitedata.tsdb import Node, BranchNode, TSDB
+from graphitedata.tsdb import TSDB
 from graphitedata.hbase.ttypes import *
 from graphitedata.hbase.Hbase import Client
 from graphitedata import util
+
+from graphite.node import BranchNode, LeafNode
+from graphite.intervals import Interval, IntervalSet
 
 
 
@@ -37,20 +40,23 @@ from graphitedata import util
 
 # we then maintain a data table with keys that are a compound of metric ID + unix timestamp for 8 byte keys
 
-dataKeyFmt = ">LL"
-dataValFmt = ">Ld"
+
+KEY_FMT = ">LL" # format for ts data row keys
+VAL_FMT = ">Ld" # format for ts data row values
+
 
 class ArchiveConfig:
-    __slots__ = ('archiveId','secondsPerPoint','points')
+    __slots__ = ('archiveId', 'secondsPerPoint', 'points')
 
-    def __init__(self,tuple,id):
-        self.secondsPerPoint,self.points = tuple
+    def __init__(self, tuple, id):
+        self.secondsPerPoint, self.points = tuple
         self.archiveId = id
 
-class HbaseTSDB(TSDB):
-    __slots__ = ('transport','client','metaTable','dataTable')
 
-    def __init__(self, host,port,table_prefix):
+class HbaseTSDB(TSDB):
+    __slots__ = ('transport', 'client', 'metaTable', 'dataTable')
+
+    def __init__(self, host, port, table_prefix):
         # set up client
         self.metaTable = table_prefix + "META"
         self.dataTable = table_prefix + "DATA"
@@ -62,11 +68,11 @@ class HbaseTSDB(TSDB):
         # ensure both our tables exist
         tables = self.client.getTableNames()
         if self.metaTable not in tables:
-            self.client.createTable(self.metaTable,[ColumnDescriptor("cf:")])
+            self.client.createTable(self.metaTable, [ColumnDescriptor("cf:")])
             # add counter record
-            self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1)
+            self.client.atomicIncrement(self.metaTable, "CTR", "cf:CTR", 1)
         if self.dataTable not in tables:
-            self.client.createTable(self.dataTable,[ColumnDescriptor("cf:")])
+            self.client.createTable(self.dataTable, [ColumnDescriptor("cf:")])
 
 
     # returns info for the underlying db (including 'aggregationMethod')
@@ -87,7 +93,6 @@ class HbaseTSDB(TSDB):
     #  'size' : points * pointSize,
     #}
     #
-
     def info(self, metric):
         # info is stored as serialized map under META#METRIC
         key = "m_" + metric
@@ -104,7 +109,7 @@ class HbaseTSDB(TSDB):
         currInfo['xFilesFactor'] = xFilesFactor
 
         infoJson = json.dumps(currInfo)
-        self.client.mutateRow(self.metaTable,"m_" + metric,[Mutation(column="cf:INFO",value=infoJson)],None)
+        self.client.mutateRow(self.metaTable, "m_" + metric, [Mutation(column="cf:INFO", value=infoJson)], None)
         return
 
 
@@ -117,7 +122,7 @@ class HbaseTSDB(TSDB):
         #    a['archiveId'] = (self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1))
 
         archiveMapList = [
-            {'archiveId': (self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1)),
+            {'archiveId': (self.client.atomicIncrement(self.metaTable, "CTR", "cf:CTR", 1)),
              'secondsPerPoint': a[0],
              'points': a[1],
              'retention': a[0] * a[1],
@@ -126,15 +131,15 @@ class HbaseTSDB(TSDB):
         ]
         #newId = self.client.atomicIncrement(self.metaTable,"CTR","cf:CTR",1)
 
-        oldest = max([secondsPerPoint * points for secondsPerPoint,points in archiveList])
+        oldest = max([secondsPerPoint * points for secondsPerPoint, points in archiveList])
         # then write the metanode
         info = {
-            'aggregationMethod' : aggregationMethod,
-            'maxRetention' : oldest,
-            'xFilesFactor' : xFilesFactor,
-            'archives' : archiveMapList,
+            'aggregationMethod': aggregationMethod,
+            'maxRetention': oldest,
+            'xFilesFactor': xFilesFactor,
+            'archives': archiveMapList,
         }
-        self.client.mutateRow(self.metaTable,"m_" + metric,[Mutation(column="cf:INFO",value=json.dumps(info))],None)
+        self.client.mutateRow(self.metaTable, "m_" + metric, [Mutation(column="cf:INFO", value=json.dumps(info))], None)
         # finally, ensure links exist
         metric_parts = metric.split('.')
         priorParts = ""
@@ -150,16 +155,17 @@ class HbaseTSDB(TSDB):
                 priorParts += "." + part
 
             # make sure parent of this node exists and is linked to us
-            parentLink = self.client.get(self.metaTable,metricParentKey,"cf:c_" + part,None)
+            parentLink = self.client.get(self.metaTable, metricParentKey, "cf:c_" + part, None)
             if len(parentLink) == 0:
-                self.client.mutateRow(self.metaTable,metricParentKey,[Mutation(column="cf:c_"+part,value=metricKey)],None)
+                self.client.mutateRow(self.metaTable, metricParentKey,
+                                      [Mutation(column="cf:c_" + part, value=metricKey)], None)
 
 
     # points is a list of (timestamp,value) points
     def update_many(self, metric, points):
         info = self.info(metric)
-        now = int( time.time() )
-        archives = iter( info['archives'] )
+        now = int(time.time())
+        archives = iter(info['archives'])
         currentArchive = archives.next()
         currentPoints = []
 
@@ -169,7 +175,7 @@ class HbaseTSDB(TSDB):
             while currentArchive['retention'] < age: #we can't fit any more points in this archive
                 if currentPoints: #commit all the points we've found that it can fit
                     currentPoints.reverse() #put points in chronological order
-                    self.__archive_update_many(info,currentArchive,currentPoints)
+                    self.__archive_update_many(info, currentArchive, currentPoints)
                     currentPoints = []
                 try:
                     currentArchive = archives.next()
@@ -184,21 +190,21 @@ class HbaseTSDB(TSDB):
 
         if currentArchive and currentPoints: #don't forget to commit after we've checked all the archives
             currentPoints.reverse()
-            self.__archive_update_many(info,currentArchive,currentPoints)
+            self.__archive_update_many(info, currentArchive, currentPoints)
 
-    def __archive_update_many(self,info,archive,points):
+    def __archive_update_many(self, info, archive, points):
         numPoints = archive['points']
         step = archive['secondsPerPoint']
         archiveId = archive['archiveId']
         alignedPoints = [(timestamp - (timestamp % step), value)
-                         for (timestamp,value) in points ]
+                         for (timestamp, value) in points]
         alignedPoints = dict(alignedPoints).items() # Take the last val of duplicates
 
-        for timestamp,value in alignedPoints:
+        for timestamp, value in alignedPoints:
             slot = int((timestamp / step) % numPoints)
-            rowkey = struct.pack(dataKeyFmt,archiveId,slot)
-            rowval = struct.pack(dataValFmt,timestamp,value)
-            self.client.mutateRow(self.dataTable,rowkey,[Mutation(column="cf:d",value=rowval)],None)
+            rowkey = struct.pack(KEY_FMT, archiveId, slot)
+            rowval = struct.pack(VAL_FMT, timestamp, value)
+            self.client.mutateRow(self.dataTable, rowkey, [Mutation(column="cf:d", value=rowval)], None)
 
         #Now we propagate the updates to lower-precision archives
         higher = archive
@@ -217,7 +223,7 @@ class HbaseTSDB(TSDB):
                 break
             higher = lower
 
-    def __propagate(self,info,timestamp,higher,lower):
+    def __propagate(self, info, timestamp, higher, lower):
         aggregationMethod = info['aggregationMethod']
         xff = info['xFilesFactor']
 
@@ -225,19 +231,19 @@ class HbaseTSDB(TSDB):
         intervalStart = timestamp - (timestamp % lower['secondsPerPoint'])
         intervalEnd = intervalStart + lower['secondsPerPoint']
 
-        higherResData = self.__archive_fetch(higher['archiveId'],intervalStart,intervalEnd)
+        higherResData = self.__archive_fetch(higher['archiveId'], intervalStart, intervalEnd)
 
         known_datapts = [v for v in higherResData if v is not None] # strip out "nones"
         if (len(known_datapts) / len(higherResData)) > xff: # we have enough data, so propagate downwards
-            aggregateValue = util.aggregate(aggregationMethod,known_datapts)
+            aggregateValue = util.aggregate(aggregationMethod, known_datapts)
             lowerSlot = timestamp / lower['secondsPerPoint'] % lower['numPoints']
-            rowkey = struct.pack(dataKeyFmt,lower['archiveId'],lowerSlot)
-            rowval = struct.pack(dataValFmt,timestamp,aggregateValue)
-            self.client.mutateRow(self.dataTable,rowkey,[Mutation(column="cf:d",value=rowval)],None)
+            rowkey = struct.pack(KEY_FMT, lower['archiveId'], lowerSlot)
+            rowval = struct.pack(VAL_FMT, timestamp, aggregateValue)
+            self.client.mutateRow(self.dataTable, rowkey, [Mutation(column="cf:d", value=rowval)], None)
 
     # returns list of values between the two times.  length is endTime - startTime / secondsPerPorint.
     # should be aligned with secondsPerPoint for proper results
-    def __archive_fetch(self,archive,startTime,endTime):
+    def __archive_fetch(self, archive, startTime, endTime):
         step = archive['secondsPerPoint']
         numPoints = archive['points']
         startTime = int(startTime - (startTime % step) + step)
@@ -245,29 +251,29 @@ class HbaseTSDB(TSDB):
         startSlot = int((startTime / step) % numPoints)
         endSlot = int((endTime / step) % numPoints)
         if startSlot > endSlot: # we wrapped so make 2 queries
-            ranges = [(0,endSlot+1),(startSlot,numPoints)]
+            ranges = [(0, endSlot + 1), (startSlot, numPoints)]
         else:
-            ranges = [(startSlot,endSlot+1)]
+            ranges = [(startSlot, endSlot + 1)]
         for t in ranges:
-            startkey = struct.pack(dataKeyFmt,archive['archiveId'],t[0])
-            endkey = struct.pack(dataKeyFmt,archive['archiveId'],t[1])
-            scannerId = self.client.scannerOpenWithStop(self.dataTable,startkey,endkey,["cf:d"],None)
+            startkey = struct.pack(KEY_FMT, archive['archiveId'], t[0])
+            endkey = struct.pack(KEY_FMT, archive['archiveId'], t[1])
+            scannerId = self.client.scannerOpenWithStop(self.dataTable, startkey, endkey, ["cf:d"], None)
 
             numSlots = (endTime - startTime) / archive['secondsPerPoint']
             ret = [None] * numSlots
 
-            for row in self.client.scannerGetList(scannerId,100000):
-                (timestamp,value) = struct.unpack(dataValFmt,row.columns["cf:d"].value)
+            for row in self.client.scannerGetList(scannerId, 100000):
+                (timestamp, value) = struct.unpack(VAL_FMT, row.columns["cf:d"].value)
                 if timestamp >= startTime and timestamp <= endTime:
-                    returnslot = int( (timestamp-startTime) / archive['secondsPerPoint']) % numSlots
+                    returnslot = int((timestamp - startTime) / archive['secondsPerPoint']) % numSlots
                     ret[returnslot] = value
             self.client.scannerClose(scannerId)
-        timeInfo = (startTime,endTime,step)
-        return timeInfo,ret
+        timeInfo = (startTime, endTime, step)
+        return timeInfo, ret
 
 
-    def exists(self,metric):
-        return len(self.client.getRow(self.metaTable,"m_" + metric,None)) > 0
+    def exists(self, metric):
+        return len(self.client.getRow(self.metaTable, "m_" + metric, None)) > 0
 
 
     # fromTime is an epoch time
@@ -276,8 +282,8 @@ class HbaseTSDB(TSDB):
     # Returns a tuple of (timeInfo, valueList)
     # where timeInfo is itself a tuple of (fromTime, untilTime, step)
     # Returns None if no data can be returned
-    def fetch(self,info,fromTime,untilTime):
-        now = int( time.time() )
+    def fetch(self, info, fromTime, untilTime):
+        now = int(time.time())
         if untilTime is None:
             untilTime = now
         fromTime = int(fromTime)
@@ -292,25 +298,25 @@ class HbaseTSDB(TSDB):
         oldestTime = now - info['maxRetention']
         if fromTime < oldestTime:
             fromTime = oldestTime
-        # iterate archives to find the smallest
+            # iterate archives to find the smallest
         diff = now - fromTime
         for archive in info['archives']:
             if archive['retention'] >= diff:
                 break
-        return self.__archive_fetch(archive,fromTime,untilTime)
+        return self.__archive_fetch(archive, fromTime, untilTime)
 
     # returns [ start, end ] where start,end are unixtime ints
-    def get_intervals(self,metric):
+    def get_intervals(self, metric):
         start = time.time() - self.info(metric)['maxRetention']
         end = time.time()
-        return [start,end]
+        return [start, end]
 
     # returns list of metrics as strings
-    def find_nodes(self,query):
+    def find_nodes(self, query):
         # break query into parts
         clean_pattern = query.pattern.replace('\\', '')
         pattern_parts = clean_pattern.split('.')
-        ret = self._find_paths("ROOT",pattern_parts)
+        ret = self._find_paths("ROOT", pattern_parts)
         return ret
 
     def _find_paths(self, currNodeRowKey, patterns):
@@ -319,28 +325,28 @@ class HbaseTSDB(TSDB):
         pattern = patterns[0]
         patterns = patterns[1:]
 
-        nodeRow = self.client.getRow(self.metaTable,currNodeRowKey,None)
+        nodeRow = self.client.getRow(self.metaTable, currNodeRowKey, None)
         if len(nodeRow) == 0:
             return
 
         subnodes = {}
-        for k,v in nodeRow[0].columns.items():
+        for k, v in nodeRow[0].columns.items():
             if k.startswith("cf:c_"): # branches start with c_
-                key = k.split("_",2)[1] # pop off cf:c_ prefix
+                key = k.split("_", 2)[1] # pop off cf:c_ prefix
                 subnodes[key] = v.value
 
-        matching_subnodes = match_entries(subnodes.keys(),pattern)
+        matching_subnodes = match_entries(subnodes.keys(), pattern)
 
         if patterns: # we've still got more directories to traverse
             for subnode in matching_subnodes:
                 rowKey = subnodes[subnode]
-                subNodeContents = self.client.getRow(self.metaTable,rowKey,None)
+                subNodeContents = self.client.getRow(self.metaTable, rowKey, None)
 
                 # leafs have a cf:INFO column describing their data
                 # we can't possibly match on a leaf here because we have more components in the pattern,
                 # so only recurse on branches
                 if "cf:INFO" not in subNodeContents[0].columns:
-                    for m in self._find_paths(rowKey,patterns):
+                    for m in self._find_paths(rowKey, patterns):
                         yield m
 
 
@@ -348,30 +354,26 @@ class HbaseTSDB(TSDB):
         else: # at the end of the pattern
             for subnode in matching_subnodes:
                 rowKey = subnodes[subnode]
-                nodeRow = self.client.getRow(self.metaTable,rowKey,None)
+                nodeRow = self.client.getRow(self.metaTable, rowKey, None)
                 if len(nodeRow) == 0:
                     continue
-                metric = rowKey.split("_",2)[1] # pop off "m_" in key
+                metric = rowKey.split("_", 2)[1] # pop off "m_" in key
                 if "cf:INFO" in nodeRow[0].columns:
                     info = json.loads(nodeRow[0].columns["cf:INFO"].value)
-                    yield HbaseLeafNode(metric,info,self)
+                    reader = HbaseReader(metric,info,self)
+                    yield LeafNode(metric, reader)
                 else:
                     yield BranchNode(metric)
 
-def NewHbaseTSDB(arg="localhost:9090:graphite_"):
-    host,port,prefix = arg.split(":")
-    #print "Constructing hbase tsdb, host " + host + " , port " + port + " , prefix" + prefix
-    return HbaseTSDB(host,int(port),prefix)
-
-class HbaseLeafNode(Node):
-    __slots__ = ('db', 'intervals','info')
-
-    def __init__(self, path, info, hbasedb):
-        Node.__init__(self, path)
-        self.db = hbasedb
+class HbaseReader(object):
+    __slots__ = ('db','metric','intervals','info')
+    def __init__(self,metric,info,db):
+        self.metric=metric
+        self.db=db
         self.info = info
-        self.intervals = hbasedb.get_intervals(path)
-        self.is_leaf = True
+        start = time.time() - info['maxRetention']
+        end = time.time()
+        self.intervals = IntervalSet( [Interval(start, end)] )
 
     def get_intervals(self):
         return self.intervals
@@ -380,33 +382,34 @@ class HbaseLeafNode(Node):
         return self.db.fetch(self.info, startTime, endTime)
 
     def __repr__(self):
-        return '<HbaseLeafNode[%x]: %s >' % (id(self), self.path)
+        return '<HbaseReader[%x]: %s >' % (id(self), self.metric)
+
 
 def match_entries(entries, pattern):
-  """A drop-in replacement for fnmatch.filter that supports pattern
-  variants (ie. {foo,bar}baz = foobaz or barbaz)."""
-  v1, v2 = pattern.find('{'), pattern.find('}')
+    """A drop-in replacement for fnmatch.filter that supports pattern
+    variants (ie. {foo,bar}baz = foobaz or barbaz)."""
+    v1, v2 = pattern.find('{'), pattern.find('}')
 
-  if v1 > -1 and v2 > v1:
-    variations = pattern[v1+1:v2].split(',')
-    variants = [ pattern[:v1] + v + pattern[v2+1:] for v in variations ]
-    matching = []
+    if v1 > -1 and v2 > v1:
+        variations = pattern[v1 + 1:v2].split(',')
+        variants = [pattern[:v1] + v + pattern[v2 + 1:] for v in variations]
+        matching = []
 
-    for variant in variants:
-      matching.extend( fnmatch.filter(entries, variant) )
+        for variant in variants:
+            matching.extend(fnmatch.filter(entries, variant))
 
-    return list( _deduplicate(matching) ) #remove dupes without changing order
+        return list(_deduplicate(matching)) #remove dupes without changing order
 
-  else:
-    matching = fnmatch.filter(entries, pattern)
-    matching.sort()
-    return matching
+    else:
+        matching = fnmatch.filter(entries, pattern)
+        matching.sort()
+        return matching
 
 
 def _deduplicate(entries):
-  yielded = set()
-  for entry in entries:
-    if entry not in yielded:
-      yielded.add(entry)
-      yield entry
+    yielded = set()
+    for entry in entries:
+        if entry not in yielded:
+            yielded.add(entry)
+            yield entry
 
