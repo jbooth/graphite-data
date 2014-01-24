@@ -1,12 +1,21 @@
-__author__ = 'jay'
+import os
+import sys
+from os.path import realpath,join,dirname,exists
 
+GRAPHITE_ROOT = os.environ.get('GRAPHITE_ROOT')
+if not GRAPHITE_ROOT:
+    # assumes
+    GRAPHITE_ROOT = realpath(join(dirname(__file__), '..'))
 
-graphite_root = os.environ.get('GRAPHITE_ROOT')
-if graphite_root is None:
+GRAPHITE_CONF = os.environ.get('GRAPHITE_CONF_DIR')
+if not GRAPHITE_CONF:
+    GRAPHITE_CONF = join(GRAPHITE_ROOT,'conf')
 
+GRAPHITE_STORAGE_DIR = os.environ.get('GRAPHITE_STORAGE_DIR')
+if not GRAPHITE_STORAGE_DIR:
+  GRAPHITE_STORAGE_DIR = join(GRAPHITE_ROOT, 'storage')
 
-graphite_root = kwargs.get("ROOT_DIR")
-if graphite_root is None:
-if graphite_root is None:
-    raise CarbonConfigException("Either ROOT_DIR or GRAPHITE_ROOT "
-                     "needs to be provided.")
+GRAPHITE_WEB_DIR = join(GRAPHITE_ROOT,'webapp')
+if exists(GRAPHITE_WEB_DIR):
+    # add graphite-web to the pythonpath
+    sys.path.insert(0, GRAPHITE_WEB_DIR)

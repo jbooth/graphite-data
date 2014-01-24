@@ -1,31 +1,17 @@
-__author__ = 'jay'
-
-import os
-from os.path import realpath,join,dirname
+from os.path import join
 from ConfigParser import ConfigParser
+from . import GRAPHITE_CONF
 
-graphite_root = os.environ.get('GRAPHITE_ROOT')
-if graphite_root is None:
-    graphite_root = realpath(join(dirname(__file__), '..'))
-
-graphite_conf = os.environ.get('GRAPHITE_CONF_DIR')
-if graphite_conf is None:
-    graphite_conf = join(graphite_root,'conf')
-
-defaults = dict(
-    GRAPHITE_ROOT=graphite_root,
-    GRAPHITE_CONF_DIR=graphite_conf,
-)
 
 class Settings(dict):
   __getattr__ = dict.__getitem__
 
-  def __init__(self,path,section):
+  def __init__(self,defaults, section):
     dict.__init__(self)
     self.update(defaults)
-      self.readFrom(path,section)
+    self.readFrom(join(GRAPHITE_CONF,'graphite-db.conf'),defaults,section)
 
-  def readFrom(self, path, section):
+  def readFrom(self, path, defaults, section):
     parser = ConfigParser()
     if not parser.read(path):
       raise Exception("Failed to read config file %s" % path)
@@ -59,8 +45,3 @@ class Settings(dict):
             pass
 
       self[key] = value
-
-
-
-
-settings = ConfigParser.read(join(graphite_conf,'graphite-db.conf'))
