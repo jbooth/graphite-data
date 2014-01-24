@@ -9,16 +9,12 @@ from graphitedata.hbase.ttypes import *
 from graphitedata.hbase.Hbase import Client
 from graphitedata import util
 
-from graphite.node import BranchNode, LeafNode
-from graphite.intervals import Interval, IntervalSet
-
-
 
 # we manage a namespace table (NS) and then a data table (data)
 
-# the NS table is organized to mimic a tree structure, with a ROOT node containing links to its children.as
-# Nodes are either a BRANCH node which contains multiple child columns prefixed with c_, or a LEAF node
-# containing a single INFO column
+# the NS table is organized to mimic a tree structure, with a ROOT node containing links to its children.
+# Nodes are either a BRANCH node which contains multiple child columns prefixed with c_,
+# or a LEAF node containing a single INFO column with the JSON included in the info() method's comment
 
 # IDCTR
 #   - unique id counter
@@ -322,6 +318,10 @@ class HbaseTSDB(TSDB):
     def _find_paths(self, currNodeRowKey, patterns):
         """Recursively generates absolute paths whose components underneath current_node
         match the corresponding pattern in patterns"""
+
+        from graphite.node import BranchNode, LeafNode
+        from graphite.intervals import Interval, IntervalSet
+
         pattern = patterns[0]
         patterns = patterns[1:]
 
@@ -360,20 +360,21 @@ class HbaseTSDB(TSDB):
                 metric = rowKey.split("_", 2)[1] # pop off "m_" in key
                 if "cf:INFO" in nodeRow[0].columns:
                     info = json.loads(nodeRow[0].columns["cf:INFO"].value)
-                    reader = HbaseReader(metric,info,self)
+                    start = time.time() - info['maxRetention']
+                    end = time.time()
+                    intervals = IntervalSet( [Interval(start, end)] )
+                    reader = HbaseReader(metric,intervals,info,self)
                     yield LeafNode(metric, reader)
                 else:
                     yield BranchNode(metric)
 
 class HbaseReader(object):
     __slots__ = ('db','metric','intervals','info')
-    def __init__(self,metric,info,db):
+    def __init__(self,metric,intervals,info,db):
         self.metric=metric
         self.db=db
         self.info = info
-        start = time.time() - info['maxRetention']
-        end = time.time()
-        self.intervals = IntervalSet( [Interval(start, end)] )
+        self.intervals = intervals
 
     def get_intervals(self):
         return self.intervals

@@ -2,7 +2,6 @@ import os
 from os.path import sep, join, dirname
 import time
 import whisper
-from graphite.finders.standard import StandardFinder
 from tsdb import TSDB
 
 
@@ -66,6 +65,7 @@ class WhisperTSDB(TSDB):
         return [start, end]
 
     def find_nodes(self, query):
+        from graphite.finders.standard import StandardFinder
         finder = StandardFinder(self.dataDir)
         for n in finder.find_nodes(query):
             yield n

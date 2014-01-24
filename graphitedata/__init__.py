@@ -1,6 +1,5 @@
 import os
-import sys
-from os.path import realpath,join,dirname,exists
+from os.path import realpath,join,dirname
 
 GRAPHITE_ROOT = os.environ.get('GRAPHITE_ROOT')
 if not GRAPHITE_ROOT:
@@ -14,8 +13,3 @@ if not GRAPHITE_CONF:
 GRAPHITE_STORAGE_DIR = os.environ.get('GRAPHITE_STORAGE_DIR')
 if not GRAPHITE_STORAGE_DIR:
   GRAPHITE_STORAGE_DIR = join(GRAPHITE_ROOT, 'storage')
-
-GRAPHITE_WEB_DIR = join(GRAPHITE_ROOT,'webapp')
-if exists(GRAPHITE_WEB_DIR):
-    # add graphite-web to the pythonpath
-    sys.path.insert(0, GRAPHITE_WEB_DIR)
