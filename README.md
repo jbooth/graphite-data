@@ -16,6 +16,7 @@ To integrate with graphite-web, we plug in as a finder.  In settings.py, plug in
     )
 
 or
+
     STORAGE_FINDERS = (
         'graphitedata.WhisperDB()',
     )
