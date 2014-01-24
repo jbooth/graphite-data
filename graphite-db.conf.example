@@ -8,4 +8,11 @@
 #   GRAPHITE_CONF_DIR    - Configuration directory (where this file lives).
 #                          Defaults to $GRAPHITE_ROOT/conf/
 
-WHISPER_DATA_DIR=
+
+[hbase]
+THRIFT_HOST=localhost
+THRIFT_PORT=9090
+GRAPHITE_PREFIX=graphite_
+
+[whisper]
+WHISPER_STORAGE_DIR=/opt/graphite/storage/whisper
