@@ -15,13 +15,13 @@ Setup should be as easy as
 To integrate with graphite-web, we plug in as a finder.  In settings.py, plug in
 
     STORAGE_FINDERS = (
-        'graphitedata.HbaseDB()',
+        'graphitedata.plugin.HbaseDB()',
     )
 
 or
 
     STORAGE_FINDERS = (
-        'graphitedata.WhisperDB()',
+        'graphitedata.plugin.WhisperDB()',
     )
 
 Note that you can supply a list of finders, so feel free to use the StandardFinder in addition to a plugin for your migration strategy.
@@ -30,8 +30,8 @@ To integrate with carbon, you'll have to use our forked version at github.com/oh
 
 Put the following line in your carbon.conf
 
-    DB_INIT_FUNC=graphitedata.HbaseDB
+    DB_INIT_FUNC=graphitedata.plugin.HbaseDB
 
 or
 
-    DB_INIT_FUNC=graphitedata.WhisperDB
+    DB_INIT_FUNC=graphitedata.plugin.WhisperDB
