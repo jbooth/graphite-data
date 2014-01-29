@@ -7,6 +7,8 @@ Each store implements the interface outlined in abstract class TSDB.
 
 Setup should be as easy as
 
+    git clone https://github.com/jbooth/graphite-data.git
+    cd graphite-data
     python setup.py install
     cp graphite-db.conf.example /opt/graphite/conf/graphite-db.conf
 
