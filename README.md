@@ -8,6 +8,7 @@ Each store implements the interface outlined in abstract class TSDB.
 Setup should be as easy as
 
     python setup.py install
+    cp graphite-db.conf.example /opt/graphite/conf/graphite-db.conf
 
 To integrate with graphite-web, we plug in as a finder.  In settings.py, plug in
 
