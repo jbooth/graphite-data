@@ -4,7 +4,7 @@
 # installed, where to read configuration from and where to write data.
 #
 #   GRAPHITE_ROOT        - Root directory of the graphite installation.
-#                          Defaults to ../
+#                          Can be set by environment variable, defaults to /opt/graphite
 #   GRAPHITE_CONF_DIR    - Configuration directory (where this file lives).
 #                          Defaults to $GRAPHITE_ROOT/conf/
 

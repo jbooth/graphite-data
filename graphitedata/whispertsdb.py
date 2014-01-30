@@ -66,6 +66,6 @@ class WhisperTSDB(TSDB):
 
     def find_nodes(self, query):
         from graphite.finders.standard import StandardFinder
-        finder = StandardFinder(self.dataDir)
+        finder = StandardFinder([self.dataDir])
         for n in finder.find_nodes(query):
             yield n

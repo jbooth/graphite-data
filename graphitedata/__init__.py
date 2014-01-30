@@ -3,8 +3,7 @@ from os.path import realpath,join,dirname
 
 GRAPHITE_ROOT = os.environ.get('GRAPHITE_ROOT')
 if not GRAPHITE_ROOT:
-    # assumes
-    GRAPHITE_ROOT = realpath(join(dirname(__file__), '..'))
+    GRAPHITE_ROOT = '/opt/graphite'
 
 GRAPHITE_CONF = os.environ.get('GRAPHITE_CONF_DIR')
 if not GRAPHITE_CONF:

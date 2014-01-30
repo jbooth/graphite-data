@@ -15,13 +15,13 @@ Setup should be as easy as
 To integrate with graphite-web, we plug in as a finder.  In settings.py, plug in
 
     STORAGE_FINDERS = (
-        'graphitedata.plugin.HbaseDB()',
+        'graphitedata.plugin.HbaseDB',
     )
 
 or
 
     STORAGE_FINDERS = (
-        'graphitedata.plugin.WhisperDB()',
+        'graphitedata.plugin.WhisperDB',
     )
 
 Note that you can supply a list of finders, so feel free to use the StandardFinder in addition to a plugin for your migration strategy.
