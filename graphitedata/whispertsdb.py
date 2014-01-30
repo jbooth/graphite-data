@@ -1,5 +1,5 @@
 import os
-from os.path import sep, join, dirname
+from os.path import exists,sep, join, dirname
 import time
 import whisper
 from tsdb import TSDB
@@ -53,7 +53,7 @@ class WhisperTSDB(TSDB):
         return whisper.update_many(self.getFilesystemPath(metric), datapoints)
 
     def exists(self, metric):
-        return whisper.exists(self.getFilesystemPath(metric))
+        return exists(self.getFilesystemPath(metric))
 
     def fetch(self, metric, startTime, endTime):
         return whisper.fetch(self.getFilesystemPath(metric), startTime, endTime)

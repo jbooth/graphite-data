@@ -1,7 +1,7 @@
 from conf import Settings
 from . import GRAPHITE_STORAGE_DIR
-from hbase.hbasedb import HbaseTSDB
-from standard.whispertsdb import WhisperTSDB
+from graphitedata.hbase.hbasedb import HbaseTSDB
+from graphitedata.whispertsdb import WhisperTSDB
 from os.path import join
 
 hbaseDefaults = dict(
