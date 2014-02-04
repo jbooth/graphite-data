@@ -28,7 +28,7 @@ Note that you can supply a list of finders, so feel free to use the StandardFind
 
 To integrate with carbon, you'll have to use our forked version at github.com/ohmdata/carbon
 
-Put the following line in your carbon.conf
+Put the following line in the [cache] section of your carbon.conf file (should be the top section of the file, see the example conf in our fork).
 
     DB_INIT_FUNC=graphitedata.plugin.HbaseDB
 
