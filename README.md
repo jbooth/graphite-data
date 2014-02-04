@@ -26,7 +26,7 @@ or
 
 Note that you can supply a list of finders, so feel free to use the StandardFinder in addition to a plugin for your migration strategy.
 
-To integrate with carbon, you'll have to use our forked version at github.com/ohmdata/carbon
+To integrate with carbon, you'll have to use my forked version at https://github.com/jbooth/carbon.  There's a pull request for carbon plugin functionality at https://github.com/graphite-project/carbon/pull/210
 
 Put the following line in the [cache] section of your carbon.conf file (should be the top section of the file, see the example conf in our fork).
 
